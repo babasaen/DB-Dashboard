@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Executive Dashboard — มาตรฐาน TIS & ZUBB</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --border: #2d3f56;
+      --text: #e8edf4;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --pass: #22c55e;
+      --fail-zubb: #f59e0b;
+      --fail-tis: #ef4444;
+      --chem: #a78bfa;
+      --mech: #38bdf8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', 'Sarabun', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0f1419 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 1.5rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .header h1 { font-size: 1.5rem; font-weight: 700; }
+    .header p { color: var(--muted); font-size: 0.875rem; margin-top: 0.25rem; }
+    .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+    .btn:hover { filter: brightness(1.1); }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .container { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .kpi {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .kpi.total::before { background: var(--accent); }
+    .kpi.pass::before { background: var(--pass); }
+    .kpi.zubb::before { background: var(--fail-zubb); }
+    .kpi.tis::before { background: var(--fail-tis); }
+    .kpi.chem::before { background: var(--chem); }
+    .kpi.mech::before { background: var(--mech); }
+    .kpi-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .kpi-value { font-size: 2rem; font-weight: 700; margin: 0.25rem 0; }
+    .kpi-sub { font-size: 0.8rem; color: var(--muted); }
+    .filters {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: end;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 0.35rem; }
+    .filter-group label { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+    .filter-group select, .filter-group input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      min-width: 160px;
+    }
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .card h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--muted);
+    }
+    .chart-wrap { position: relative; height: 260px; }
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+    .badge-zubb { background: rgba(245,158,11,0.2); color: var(--fail-zubb); }
+    .badge-tis { background: rgba(239,68,68,0.2); color: var(--fail-tis); }
+    .badge-pass { background: rgba(34,197,94,0.2); color: var(--pass); }
+    .badge-chem { background: rgba(167,139,250,0.2); color: var(--chem); }
+    .badge-mech { background: rgba(56,189,248,0.2); color: var(--mech); }
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th {
+      background: var(--surface2);
+      padding: 0.75rem 0.6rem;
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    td {
+      padding: 0.6rem;
+      border-top: 1px solid var(--border);
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    tr:hover td { background: rgba(59,130,246,0.06); }
+    .fail-params { color: var(--fail-zubb); font-weight: 600; }
+    .fail-params.tis { color: var(--fail-tis); }
+    .loading {
+      text-align: center;
+      padding: 4rem;
+      color: var(--muted);
+    }
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .tab {
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+    .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .param-bar { margin-bottom: 0.5rem; }
+    .param-bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.2rem; }
+    .param-bar-track { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+    .param-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+    .param-bar-fill.zubb { background: var(--fail-zubb); }
+    .param-bar-fill.tis { background: var(--fail-tis); }
+    #fileInput { display: none; }
+    .meta { font-size: 0.75rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>Executive Dashboard — การตรวจสอบมาตรฐาน</h1>
+      <p>มุมมองผู้บริหาร: ตัวอย่างที่ไม่ผ่านเกณฑ์ TIS และมาตรฐานภายใน (ZUBB)</p>
+    </div>
+    <div class="header-actions">
+      <span class="meta" id="dataMeta">กำลังโหลดข้อมูล...</span>
+      <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">อัปโหลด Excel</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+    </div>
+  </header>
+
+  <div class="container" id="app">
+    <div class="loading" id="loading">กำลังโหลดข้อมูลจาก DB_1412.xlsx ...</div>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    const CHEM_PROPS = ['C','Si','Mn','P','S','Ceq'];
+    const MECH_PROPS = ['Length','Mass/Meter','Tran In','Tran High','Sum Width','Ang R/B','Elongation'];
+    const PROP_LABELS = {
+      'C':'คาร์บอน (C)','Si':'ซิลิคอน (Si)','Mn':'แมงกานีส (Mn)',
+      'P':'ฟอสฟอรัส (P)','S':'กำมะถัน (S)','Ceq':'Ceq',
+      'Length':'ความยาว','Mass/Meter':'น้ำหนัก/เมตร','Tran In':'Tran In',
+      'Tran High':'Tran High','Sum Width':'Sum Width','Ang R/B':'Ang R/B','Elongation':'การยืดตัว'
+    };
+
+    let allRecords = [];
+    let charts = {};
+
+    const HEADERS = [
+      'overallStatus','chemicalStatus','mechanicalStatus','zubbCondition','tisCondition',
+      'inspectionLot','operation','inspPoint','heatNo','material','materialDesc','matgrade',
+      'inspectDate','zubbValidFrom','zubbValidTo','tisValidFrom','tisValidTo',
+      'C','Si','Mn','P','S','Ceq','length','massPerMeter','tranIn','tranHigh',
+      'sumWidth','angRB','elongation','inspectCount','zubbFailCount','tisFailCount'
+    ];
+
+    function parseCondition(str) {
+      if (!str) return [];
+      return str.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    function isFailZubb(status) {
+      return status && status.includes('ZUBB');
+    }
+    function isFailTis(status) {
+      return status && status.includes('TIS');
+    }
+    function isPass(status) {
+      return status === 'ผ่าน' || status === 'ผ่านทั้งหมด';
+    }
+
+    function formatDate(val) {
+      if (!val) return '';
+      if (typeof val === 'string' && val.includes('/')) return val;
+      const n = Number(val);
+      if (!isNaN(n) && n > 30000) {
+        const d = new Date((n - 25569) * 86400000);
+        return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      }
+      return String(val);
+    }
+
+    function normalizeRecord(row) {
+      const r = {};
+      HEADERS.forEach((h, i) => {
+        let v = row[i];
+        if (v === undefined || v === '' || v === null) v = null;
+        r[h] = v;
+      });
+      if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
+      return r;
+    }
+
+    function processXLSX(arrayBuffer) {
+      const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      allRecords = raw.slice(1).map(row => normalizeRecord(row));
+      renderDashboard();
+    }
+
+    async function loadDefaultFile() {
+      if (typeof DASHBOARD_DATA !== 'undefined') {
+        allRecords = DASHBOARD_DATA.records.map(r => {
+          if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
+          return r;
+        });
+        document.getElementById('dataMeta').textContent =
+          `${DASHBOARD_DATA.sourceFile} | ${DASHBOARD_DATA.totalRecords.toLocaleString()} รายการ | ${DASHBOARD_DATA.exportedAt}`;
+        renderDashboard();
+        return;
+      }
+      try {
+        const resp = await fetch('data.json');
+        if (resp.ok) {
+          const data = await resp.json();
+          allRecords = data.records.map(r => {
+            if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
+            return r;
+          });
+          document.getElementById('dataMeta').textContent =
+            `${data.sourceFile} | ${data.totalRecords.toLocaleString()} รายการ | ${data.exportedAt}`;
+          renderDashboard();
+          return;
+        }
+      } catch(e) {}
+      try {
+        const resp = await fetch('DB_1412.xlsx');
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          document.getElementById('dataMeta').textContent = 'DB_1412.xlsx';
+          processXLSX(buf);
+          return;
+        }
+      } catch(e) {}
+      document.getElementById('loading').innerHTML =
+        'ไม่พบไฟล์ข้อมูล — กรุณาคลิก <b>อัปโหลด Excel</b> เพื่อโหลด DB_1412.xlsx';
+    }
+
+    document.getElementById('fileInput').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        document.getElementById('dataMeta').textContent = file.name;
+        processXLSX(ev.target.result);
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    function getFiltered() {
+      const stdFilter = document.getElementById('fStd')?.value || 'all';
+      const gradeFilter = document.getElementById('fGrade')?.value || 'all';
+      const typeFilter = document.getElementById('fType')?.value || 'all';
+      const search = (document.getElementById('fSearch')?.value || '').toLowerCase();
+
+      return allRecords.filter(r => {
+        if (gradeFilter !== 'all' && r.matgrade !== gradeFilter) return false;
+        if (search) {
+          const hay = [r.heatNo, r.inspectionLot, r.material, r.materialDesc].join(' ').toLowerCase();
+          if (!hay.includes(search)) return false;
+        }
+        const failZubb = isFailZubb(r.overallStatus) || isFailZubb(r.chemicalStatus) || isFailZubb(r.mechanicalStatus);
+        const failTis = isFailTis(r.overallStatus) || isFailTis(r.chemicalStatus) || isFailTis(r.mechanicalStatus);
+        if (stdFilter === 'zubb' && !failZubb) return false;
+        if (stdFilter === 'tis' && !failTis) return false;
+        if (stdFilter === 'any-fail' && !failZubb && !failTis) return false;
+        if (typeFilter === 'chem' && !isFailZubb(r.chemicalStatus) && !isFailTis(r.chemicalStatus)) return false;
+        if (typeFilter === 'mech' && !isFailZubb(r.mechanicalStatus) && !isFailTis(r.mechanicalStatus)) return false;
+        return true;
+      });
+    }
+
+    function getFailuresOnly(filtered) {
+      return filtered.filter(r =>
+        isFailZubb(r.overallStatus) || isFailTis(r.overallStatus) ||
+        isFailZubb(r.chemicalStatus) || isFailTis(r.chemicalStatus) ||
+        isFailZubb(r.mechanicalStatus) || isFailTis(r.mechanicalStatus) ||
+        r.zubbCondition || r.tisCondition
+      );
+    }
+
+    function countParamFails(records, field) {
+      const counts = {};
+      records.forEach(r => {
+        parseCondition(r[field]).forEach(p => {
+          counts[p] = (counts[p] || 0) + 1;
+        });
+      });
+      return Object.entries(counts).sort((a,b) => b[1]-a[1]);
+    }
+
+    function renderParamBars(containerId, data, cssClass, maxItems = 10) {
+      const el = document.getElementById(containerId);
+      const max = data.length ? data[0][1] : 1;
+      const items = data.slice(0, maxItems);
+      el.innerHTML = items.length ? items.map(([name, count]) => `
+        <div class="param-bar">
+          <div class="param-bar-label">
+            <span>${PROP_LABELS[name] || name}</span>
+            <span>${count.toLocaleString()} ครั้ง</span>
+          </div>
+          <div class="param-bar-track">
+            <div class="param-bar-fill ${cssClass}" style="width:${(count/max*100).toFixed(1)}%"></div>
+          </div>
+        </div>
+      `).join('') : '<p style="color:var(--muted)">ไม่มีข้อมูล</p>';
+    }
+
+    function destroyCharts() {
+      Object.values(charts).forEach(c => c.destroy());
+      charts = {};
+    }
+
+    function renderDashboard() {
+      destroyCharts();
+      const grades = [...new Set(allRecords.map(r => r.matgrade).filter(Boolean))].sort();
+      const total = allRecords.length;
+      const failZubb = allRecords.filter(r => isFailZubb(r.overallStatus)).length;
+      const failTis = allRecords.filter(r => isFailTis(r.overallStatus)).length;
+      const passAll = allRecords.filter(r => r.overallStatus === 'ผ่านทั้งหมด').length;
+      const failChem = allRecords.filter(r => isFailZubb(r.chemicalStatus) || isFailTis(r.chemicalStatus)).length;
+      const failMech = allRecords.filter(r => isFailZubb(r.mechanicalStatus) || isFailTis(r.mechanicalStatus)).length;
+
+      document.getElementById('app').innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi total"><div class="kpi-label">รายการทั้งหมด</div><div class="kpi-value">${total.toLocaleString()}</div><div class="kpi-sub">จำนวนตัวอย่างตรวจ</div></div>
+          <div class="kpi pass"><div class="kpi-label">ผ่านทั้งหมด</div><div class="kpi-value">${passAll.toLocaleString()}</div><div class="kpi-sub">${(passAll/total*100).toFixed(1)}%</div></div>
+          <div class="kpi zubb"><div class="kpi-label">ไม่ผ่าน ZUBB (ภายใน)</div><div class="kpi-value">${failZubb.toLocaleString()}</div><div class="kpi-sub">${(failZubb/total*100).toFixed(1)}%</div></div>
+          <div class="kpi tis"><div class="kpi-label">ไม่ผ่าน TIS (มอก.)</div><div class="kpi-value">${failTis.toLocaleString()}</div><div class="kpi-sub">${(failTis/total*100).toFixed(1)}%</div></div>
+          <div class="kpi chem"><div class="kpi-label">เคมี ไม่ผ่าน</div><div class="kpi-value">${failChem.toLocaleString()}</div><div class="kpi-sub">Chemical Fail</div></div>
+          <div class="kpi mech"><div class="kpi-label">เชิงกล ไม่ผ่าน</div><div class="kpi-value">${failMech.toLocaleString()}</div><div class="kpi-sub">Mechanical Fail</div></div>
+        </div>
+
+        <div class="filters">
+          <div class="filter-group">
+            <label>มาตรฐาน</label>
+            <select id="fStd" onchange="updateView()">
+              <option value="any-fail">เฉพาะที่ไม่ผ่าน</option>
+              <option value="all">ทั้งหมด</option>
+              <option value="zubb">ไม่ผ่าน ZUBB เท่านั้น</option>
+              <option value="tis">ไม่ผ่าน TIS เท่านั้น</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>ประเภท</label>
+            <select id="fType" onchange="updateView()">
+              <option value="all">ทั้งเคมีและเชิงกล</option>
+              <option value="chem">เคมี (Chemical)</option>
+              <option value="mech">เชิงกล (Mechanical)</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>เกรด (Matgrade)</label>
+            <select id="fGrade" onchange="updateView()">
+              <option value="all">ทุกเกรด</option>
+              ${grades.map(g => `<option value="${g}">${g}</option>`).join('')}
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>ค้นหา Heat No. / Lot</label>
+            <input type="text" id="fSearch" placeholder="พิมพ์เพื่อค้นหา..." oninput="updateView()">
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="card">
+            <h3>สัดส่วนผลการตรวจ (Overall)</h3>
+            <div class="chart-wrap"><canvas id="chartOverall"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>เปรียบเทียบ ZUBB vs TIS ตามเกรด</h3>
+            <div class="chart-wrap"><canvas id="chartGrade"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>เคมี vs เชิงกล ที่ไม่ผ่าน</h3>
+            <div class="chart-wrap"><canvas id="chartChemMech"></canvas></div>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="card">
+            <h3>Top 10 ตัวแปรที่ไม่ผ่าน ZUBB (ภายใน)</h3>
+            <div id="zubbParams"></div>
+          </div>
+          <div class="card">
+            <h3>Top 10 ตัวแปรที่ไม่ผ่าน TIS (มอก.)</h3>
+            <div id="tisParams"></div>
+          </div>
+        </div>
+
+        <div class="section-title">
+          รายการที่ไม่ผ่านเกณฑ์
+          <span class="badge badge-zubb" id="failCount">0 รายการ</span>
+        </div>
+        <div class="tabs">
+          <button class="tab active" data-tab="all" onclick="switchTab('all',this)">ทั้งหมด</button>
+          <button class="tab" data-tab="zubb" onclick="switchTab('zubb',this)">ZUBB</button>
+          <button class="tab" data-tab="tis" onclick="switchTab('tis',this)">TIS</button>
+        </div>
+        <div class="table-wrap" style="max-height:500px;overflow-y:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>สถานะ</th><th>Heat No.</th><th>เกรด</th><th>Lot</th><th>วันที่ตรวจ</th>
+                <th>เคมี</th><th>เชิงกล</th>
+                <th>ไม่ผ่าน ZUBB</th><th>ไม่ผ่าน TIS</th>
+                <th>C</th><th>Mn</th><th>S</th><th>Ceq</th>
+                <th>Mass/M</th><th>Elong.</th>
+              </tr>
+            </thead>
+            <tbody id="failTable"></tbody>
+          </table>
+        </div>
+      `;
+
+      renderCharts();
+      updateView();
+    }
+
+    let activeTab = 'all';
+
+    function switchTab(tab, btn) {
+      activeTab = tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      updateTable();
+    }
+
+    function renderCharts() {
+      const total = allRecords.length;
+      const passAll = allRecords.filter(r => r.overallStatus === 'ผ่านทั้งหมด').length;
+      const failZubb = allRecords.filter(r => isFailZubb(r.overallStatus)).length;
+      const failTis = allRecords.filter(r => isFailTis(r.overallStatus)).length;
+
+      charts.overall = new Chart(document.getElementById('chartOverall'), {
+        type: 'doughnut',
+        data: {
+          labels: ['ผ่านทั้งหมด', 'ไม่ผ่าน ZUBB', 'ไม่ผ่าน TIS'],
+          datasets: [{ data: [passAll, failZubb, failTis],
+            backgroundColor: ['#22c55e','#f59e0b','#ef4444'], borderWidth: 0 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: '#8b9cb3', padding: 16 } } } }
+      });
+
+      const gradeMap = {};
+      allRecords.forEach(r => {
+        const g = r.matgrade || 'N/A';
+        if (!gradeMap[g]) gradeMap[g] = { zubb: 0, tis: 0 };
+        if (isFailZubb(r.overallStatus)) gradeMap[g].zubb++;
+        if (isFailTis(r.overallStatus)) gradeMap[g].tis++;
+      });
+      const topGrades = Object.entries(gradeMap)
+        .sort((a,b) => (b[1].zubb+b[1].tis) - (a[1].zubb+a[1].tis))
+        .slice(0, 8);
+
+      charts.grade = new Chart(document.getElementById('chartGrade'), {
+        type: 'bar',
+        data: {
+          labels: topGrades.map(g => g[0]),
+          datasets: [
+            { label: 'ZUBB', data: topGrades.map(g => g[1].zubb), backgroundColor: '#f59e0b' },
+            { label: 'TIS', data: topGrades.map(g => g[1].tis), backgroundColor: '#ef4444' }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#8b9cb3' } } },
+          scales: { x: { ticks: { color: '#8b9cb3' }, grid: { color: '#2d3f56' } },
+                    y: { ticks: { color: '#8b9cb3' }, grid: { color: '#2d3f56' } } } }
+      });
+
+      const chemZubb = allRecords.filter(r => isFailZubb(r.chemicalStatus)).length;
+      const chemTis = allRecords.filter(r => isFailTis(r.chemicalStatus)).length;
+      const mechZubb = allRecords.filter(r => isFailZubb(r.mechanicalStatus)).length;
+      const mechTis = allRecords.filter(r => isFailTis(r.mechanicalStatus)).length;
+
+      charts.chemMech = new Chart(document.getElementById('chartChemMech'), {
+        type: 'bar',
+        data: {
+          labels: ['เคมี (Chemical)', 'เชิงกล (Mechanical)'],
+          datasets: [
+            { label: 'ZUBB', data: [chemZubb, mechZubb], backgroundColor: '#f59e0b' },
+            { label: 'TIS', data: [chemTis, mechTis], backgroundColor: '#ef4444' }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#8b9cb3' } } },
+          scales: { x: { ticks: { color: '#8b9cb3' }, grid: { color: '#2d3f56' } },
+                    y: { ticks: { color: '#8b9cb3' }, grid: { color: '#2d3f56' } } } }
+      });
+    }
+
+    function updateView() {
+      const filtered = getFiltered();
+      const failures = getFailuresOnly(filtered);
+
+      const zubbFails = failures.filter(r => r.zubbCondition);
+      const tisFails = failures.filter(r => r.tisCondition);
+
+      renderParamBars('zubbParams', countParamFails(zubbFails, 'zubbCondition'), 'zubb');
+      renderParamBars('tisParams', countParamFails(tisFails, 'tisCondition'), 'tis');
+
+      updateTable();
+    }
+
+    function updateTable() {
+      const filtered = getFiltered();
+      let failures = getFailuresOnly(filtered);
+
+      if (activeTab === 'zubb') failures = failures.filter(r => r.zubbCondition);
+      if (activeTab === 'tis') failures = failures.filter(r => r.tisCondition);
+
+      document.getElementById('failCount').textContent = `${failures.length.toLocaleString()} รายการ`;
+
+      const tbody = document.getElementById('failTable');
+      const display = failures.slice(0, 500);
+      tbody.innerHTML = display.map(r => {
+        const statusBadge = isFailTis(r.overallStatus)
+          ? '<span class="badge badge-tis">TIS</span>'
+          : isFailZubb(r.overallStatus)
+            ? '<span class="badge badge-zubb">ZUBB</span>'
+            : '<span class="badge badge-pass">ผ่าน</span>';
+        const chemBadge = (isFailZubb(r.chemicalStatus) || isFailTis(r.chemicalStatus))
+          ? '<span class="badge badge-chem">Fail</span>' : 'ผ่าน';
+        const mechBadge = (isFailZubb(r.mechanicalStatus) || isFailTis(r.mechanicalStatus))
+          ? '<span class="badge badge-mech">Fail</span>' : 'ผ่าน';
+        return `<tr>
+          <td>${statusBadge}</td>
+          <td>${r.heatNo||''}</td>
+          <td>${r.matgrade||''}</td>
+          <td>${r.inspectionLot||''}</td>
+          <td>${formatDate(r.inspectDate)}</td>
+          <td>${chemBadge}</td>
+          <td>${mechBadge}</td>
+          <td class="fail-params" title="${r.zubbCondition||''}">${r.zubbCondition||'—'}</td>
+          <td class="fail-params tis" title="${r.tisCondition||''}">${r.tisCondition||'—'}</td>
+          <td>${r.C??''}</td><td>${r.Mn??''}</td><td>${r.S??''}</td><td>${r.Ceq??''}</td>
+          <td>${r.massPerMeter??''}</td><td>${r.elongation??''}</td>
+        </tr>`;
+      }).join('');
+
+      if (failures.length > 500) {
+        tbody.innerHTML += `<tr><td colspan="15" style="text-align:center;color:var(--muted)">แสดง 500 จาก ${failures.length.toLocaleString()} รายการ — ใช้ตัวกรองเพื่อจำกัดผลลัพธ์</td></tr>`;
+      }
+    }
+
+    loadDefaultFile();
+  </script>
+</body>
+</html>
