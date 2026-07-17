@@ -110,6 +110,9 @@
       font-size: 0.875rem;
       min-width: 160px;
     }
+    .filter-group input[type="date"] { color-scheme: dark; min-width: 150px; }
+    .filter-group input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+    .date-range-hint { font-size: 0.7rem; color: var(--muted); margin-top: 0.15rem; }
     .charts-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -266,15 +269,43 @@
       return status === 'ผ่าน' || status === 'ผ่านทั้งหมด';
     }
 
-    function formatDate(val) {
-      if (!val) return '';
-      if (typeof val === 'string' && val.includes('/')) return val;
+    function parseInspectDate(val) {
+      if (val === null || val === undefined || val === '') return null;
+      if (val instanceof Date && !isNaN(val)) return val;
       const n = Number(val);
       if (!isNaN(n) && n > 30000) {
-        const d = new Date((n - 25569) * 86400000);
-        return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        return new Date((n - 25569) * 86400000);
       }
-      return String(val);
+      if (typeof val === 'string') {
+        const thMatch = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (thMatch) return new Date(+thMatch[3], +thMatch[2] - 1, +thMatch[1]);
+        const isoMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (isoMatch) return new Date(+isoMatch[1], +isoMatch[2] - 1, +isoMatch[3]);
+        const d = new Date(val);
+        if (!isNaN(d)) return d;
+      }
+      return null;
+    }
+
+    function formatDate(val) {
+      const d = parseInspectDate(val);
+      if (!d) return val ? String(val) : '';
+      return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    function toInputDate(val) {
+      const d = parseInspectDate(val);
+      if (!d) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function enrichRecord(r) {
+      r._inspectDate = parseInspectDate(r.inspectDate);
+      if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
+      return r;
     }
 
     function normalizeRecord(row) {
@@ -284,8 +315,15 @@
         if (v === undefined || v === '' || v === null) v = null;
         r[h] = v;
       });
-      if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
-      return r;
+      return enrichRecord(r);
+    }
+
+    function getDateRangeBounds() {
+      const dates = allRecords.map(r => r._inspectDate).filter(Boolean);
+      if (!dates.length) return { min: '', max: '' };
+      const min = new Date(Math.min(...dates.map(d => d.getTime())));
+      const max = new Date(Math.max(...dates.map(d => d.getTime())));
+      return { min: toInputDate(min), max: toInputDate(max) };
     }
 
     function processXLSX(arrayBuffer) {
@@ -298,10 +336,7 @@
 
     async function loadDefaultFile() {
       if (typeof DASHBOARD_DATA !== 'undefined') {
-        allRecords = DASHBOARD_DATA.records.map(r => {
-          if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
-          return r;
-        });
+        allRecords = DASHBOARD_DATA.records.map(r => enrichRecord({ ...r }));
         document.getElementById('dataMeta').textContent =
           `${DASHBOARD_DATA.sourceFile} | ${DASHBOARD_DATA.totalRecords.toLocaleString()} รายการ | ${DASHBOARD_DATA.exportedAt}`;
         renderDashboard();
@@ -311,10 +346,7 @@
         const resp = await fetch('data.json');
         if (resp.ok) {
           const data = await resp.json();
-          allRecords = data.records.map(r => {
-            if (r.inspectDate) r.inspectDate = formatDate(r.inspectDate);
-            return r;
-          });
+          allRecords = data.records.map(r => enrichRecord({ ...r }));
           document.getElementById('dataMeta').textContent =
             `${data.sourceFile} | ${data.totalRecords.toLocaleString()} รายการ | ${data.exportedAt}`;
           renderDashboard();
@@ -350,8 +382,22 @@
       const gradeFilter = document.getElementById('fGrade')?.value || 'all';
       const typeFilter = document.getElementById('fType')?.value || 'all';
       const search = (document.getElementById('fSearch')?.value || '').toLowerCase();
+      const dateFrom = document.getElementById('fDateFrom')?.value || '';
+      const dateTo = document.getElementById('fDateTo')?.value || '';
 
       return allRecords.filter(r => {
+        if (dateFrom || dateTo) {
+          const d = r._inspectDate;
+          if (!d) return false;
+          if (dateFrom) {
+            const from = new Date(dateFrom + 'T00:00:00');
+            if (d < from) return false;
+          }
+          if (dateTo) {
+            const to = new Date(dateTo + 'T23:59:59');
+            if (d > to) return false;
+          }
+        }
         if (gradeFilter !== 'all' && r.matgrade !== gradeFilter) return false;
         if (search) {
           const hay = [r.heatNo, r.inspectionLot, r.material, r.materialDesc].join(' ').toLowerCase();
@@ -412,24 +458,32 @@
     function renderDashboard() {
       destroyCharts();
       const grades = [...new Set(allRecords.map(r => r.matgrade).filter(Boolean))].sort();
-      const total = allRecords.length;
-      const failZubb = allRecords.filter(r => isFailZubb(r.overallStatus)).length;
-      const failTis = allRecords.filter(r => isFailTis(r.overallStatus)).length;
-      const passAll = allRecords.filter(r => r.overallStatus === 'ผ่านทั้งหมด').length;
-      const failChem = allRecords.filter(r => isFailZubb(r.chemicalStatus) || isFailTis(r.chemicalStatus)).length;
-      const failMech = allRecords.filter(r => isFailZubb(r.mechanicalStatus) || isFailTis(r.mechanicalStatus)).length;
+      const { min: dateMin, max: dateMax } = getDateRangeBounds();
 
       document.getElementById('app').innerHTML = `
         <div class="kpi-grid">
-          <div class="kpi total"><div class="kpi-label">รายการทั้งหมด</div><div class="kpi-value">${total.toLocaleString()}</div><div class="kpi-sub">จำนวนตัวอย่างตรวจ</div></div>
-          <div class="kpi pass"><div class="kpi-label">ผ่านทั้งหมด</div><div class="kpi-value">${passAll.toLocaleString()}</div><div class="kpi-sub">${(passAll/total*100).toFixed(1)}%</div></div>
-          <div class="kpi zubb"><div class="kpi-label">ไม่ผ่าน ZUBB (ภายใน)</div><div class="kpi-value">${failZubb.toLocaleString()}</div><div class="kpi-sub">${(failZubb/total*100).toFixed(1)}%</div></div>
-          <div class="kpi tis"><div class="kpi-label">ไม่ผ่าน TIS (มอก.)</div><div class="kpi-value">${failTis.toLocaleString()}</div><div class="kpi-sub">${(failTis/total*100).toFixed(1)}%</div></div>
-          <div class="kpi chem"><div class="kpi-label">เคมี ไม่ผ่าน</div><div class="kpi-value">${failChem.toLocaleString()}</div><div class="kpi-sub">Chemical Fail</div></div>
-          <div class="kpi mech"><div class="kpi-label">เชิงกล ไม่ผ่าน</div><div class="kpi-value">${failMech.toLocaleString()}</div><div class="kpi-sub">Mechanical Fail</div></div>
+          <div class="kpi total"><div class="kpi-label">รายการทั้งหมด</div><div class="kpi-value" id="kpiTotal">—</div><div class="kpi-sub" id="kpiTotalSub">จำนวนตัวอย่างตรวจ</div></div>
+          <div class="kpi pass"><div class="kpi-label">ผ่านทั้งหมด</div><div class="kpi-value" id="kpiPass">—</div><div class="kpi-sub" id="kpiPassSub">—</div></div>
+          <div class="kpi zubb"><div class="kpi-label">ไม่ผ่าน ZUBB (ภายใน)</div><div class="kpi-value" id="kpiZubb">—</div><div class="kpi-sub" id="kpiZubbSub">—</div></div>
+          <div class="kpi tis"><div class="kpi-label">ไม่ผ่าน TIS (มอก.)</div><div class="kpi-value" id="kpiTis">—</div><div class="kpi-sub" id="kpiTisSub">—</div></div>
+          <div class="kpi chem"><div class="kpi-label">เคมี ไม่ผ่าน</div><div class="kpi-value" id="kpiChem">—</div><div class="kpi-sub">Chemical Fail</div></div>
+          <div class="kpi mech"><div class="kpi-label">เชิงกล ไม่ผ่าน</div><div class="kpi-value" id="kpiMech">—</div><div class="kpi-sub">Mechanical Fail</div></div>
         </div>
 
         <div class="filters">
+          <div class="filter-group">
+            <label>วันที่ตรวจ ตั้งแต่</label>
+            <input type="date" id="fDateFrom" min="${dateMin}" max="${dateMax}" value="${dateMin}" onchange="updateView()">
+          </div>
+          <div class="filter-group">
+            <label>ถึง</label>
+            <input type="date" id="fDateTo" min="${dateMin}" max="${dateMax}" value="${dateMax}" onchange="updateView()">
+            <span class="date-range-hint">ข้อมูล: ${formatDate(dateMin)} – ${formatDate(dateMax)}</span>
+          </div>
+          <div class="filter-group">
+            <label>&nbsp;</label>
+            <button class="btn btn-outline" type="button" onclick="resetDateFilter()">รีเซ็ตวันที่</button>
+          </div>
           <div class="filter-group">
             <label>มาตรฐาน</label>
             <select id="fStd" onchange="updateView()">
@@ -515,6 +569,33 @@
       updateView();
     }
 
+    function resetDateFilter() {
+      const { min, max } = getDateRangeBounds();
+      document.getElementById('fDateFrom').value = min;
+      document.getElementById('fDateTo').value = max;
+      updateView();
+    }
+
+    function updateKPIs(records) {
+      const total = records.length || 1;
+      const passAll = records.filter(r => r.overallStatus === 'ผ่านทั้งหมด').length;
+      const failZubb = records.filter(r => isFailZubb(r.overallStatus)).length;
+      const failTis = records.filter(r => isFailTis(r.overallStatus)).length;
+      const failChem = records.filter(r => isFailZubb(r.chemicalStatus) || isFailTis(r.chemicalStatus)).length;
+      const failMech = records.filter(r => isFailZubb(r.mechanicalStatus) || isFailTis(r.mechanicalStatus)).length;
+      const pct = n => records.length ? (n / records.length * 100).toFixed(1) + '%' : '0%';
+
+      document.getElementById('kpiTotal').textContent = records.length.toLocaleString();
+      document.getElementById('kpiPass').textContent = passAll.toLocaleString();
+      document.getElementById('kpiPassSub').textContent = pct(passAll);
+      document.getElementById('kpiZubb').textContent = failZubb.toLocaleString();
+      document.getElementById('kpiZubbSub').textContent = pct(failZubb);
+      document.getElementById('kpiTis').textContent = failTis.toLocaleString();
+      document.getElementById('kpiTisSub').textContent = pct(failTis);
+      document.getElementById('kpiChem').textContent = failChem.toLocaleString();
+      document.getElementById('kpiMech').textContent = failMech.toLocaleString();
+    }
+
     let activeTab = 'all';
 
     function switchTab(tab, btn) {
@@ -525,40 +606,23 @@
     }
 
     function renderCharts() {
-      const total = allRecords.length;
-      const passAll = allRecords.filter(r => r.overallStatus === 'ผ่านทั้งหมด').length;
-      const failZubb = allRecords.filter(r => isFailZubb(r.overallStatus)).length;
-      const failTis = allRecords.filter(r => isFailTis(r.overallStatus)).length;
-
       charts.overall = new Chart(document.getElementById('chartOverall'), {
         type: 'doughnut',
         data: {
           labels: ['ผ่านทั้งหมด', 'ไม่ผ่าน ZUBB', 'ไม่ผ่าน TIS'],
-          datasets: [{ data: [passAll, failZubb, failTis],
-            backgroundColor: ['#22c55e','#f59e0b','#ef4444'], borderWidth: 0 }]
+          datasets: [{ data: [0, 0, 0], backgroundColor: ['#22c55e','#f59e0b','#ef4444'], borderWidth: 0 }]
         },
         options: { responsive: true, maintainAspectRatio: false,
           plugins: { legend: { position: 'bottom', labels: { color: '#8b9cb3', padding: 16 } } } }
       });
 
-      const gradeMap = {};
-      allRecords.forEach(r => {
-        const g = r.matgrade || 'N/A';
-        if (!gradeMap[g]) gradeMap[g] = { zubb: 0, tis: 0 };
-        if (isFailZubb(r.overallStatus)) gradeMap[g].zubb++;
-        if (isFailTis(r.overallStatus)) gradeMap[g].tis++;
-      });
-      const topGrades = Object.entries(gradeMap)
-        .sort((a,b) => (b[1].zubb+b[1].tis) - (a[1].zubb+a[1].tis))
-        .slice(0, 8);
-
       charts.grade = new Chart(document.getElementById('chartGrade'), {
         type: 'bar',
         data: {
-          labels: topGrades.map(g => g[0]),
+          labels: [],
           datasets: [
-            { label: 'ZUBB', data: topGrades.map(g => g[1].zubb), backgroundColor: '#f59e0b' },
-            { label: 'TIS', data: topGrades.map(g => g[1].tis), backgroundColor: '#ef4444' }
+            { label: 'ZUBB', data: [], backgroundColor: '#f59e0b' },
+            { label: 'TIS', data: [], backgroundColor: '#ef4444' }
           ]
         },
         options: { responsive: true, maintainAspectRatio: false,
@@ -567,18 +631,13 @@
                     y: { ticks: { color: '#8b9cb3' }, grid: { color: '#2d3f56' } } } }
       });
 
-      const chemZubb = allRecords.filter(r => isFailZubb(r.chemicalStatus)).length;
-      const chemTis = allRecords.filter(r => isFailTis(r.chemicalStatus)).length;
-      const mechZubb = allRecords.filter(r => isFailZubb(r.mechanicalStatus)).length;
-      const mechTis = allRecords.filter(r => isFailTis(r.mechanicalStatus)).length;
-
       charts.chemMech = new Chart(document.getElementById('chartChemMech'), {
         type: 'bar',
         data: {
           labels: ['เคมี (Chemical)', 'เชิงกล (Mechanical)'],
           datasets: [
-            { label: 'ZUBB', data: [chemZubb, mechZubb], backgroundColor: '#f59e0b' },
-            { label: 'TIS', data: [chemTis, mechTis], backgroundColor: '#ef4444' }
+            { label: 'ZUBB', data: [0, 0], backgroundColor: '#f59e0b' },
+            { label: 'TIS', data: [0, 0], backgroundColor: '#ef4444' }
           ]
         },
         options: { responsive: true, maintainAspectRatio: false,
@@ -588,9 +647,43 @@
       });
     }
 
+    function updateCharts(records) {
+      const passAll = records.filter(r => r.overallStatus === 'ผ่านทั้งหมด').length;
+      const failZubb = records.filter(r => isFailZubb(r.overallStatus)).length;
+      const failTis = records.filter(r => isFailTis(r.overallStatus)).length;
+      charts.overall.data.datasets[0].data = [passAll, failZubb, failTis];
+      charts.overall.update();
+
+      const gradeMap = {};
+      records.forEach(r => {
+        const g = r.matgrade || 'N/A';
+        if (!gradeMap[g]) gradeMap[g] = { zubb: 0, tis: 0 };
+        if (isFailZubb(r.overallStatus)) gradeMap[g].zubb++;
+        if (isFailTis(r.overallStatus)) gradeMap[g].tis++;
+      });
+      const topGrades = Object.entries(gradeMap)
+        .sort((a,b) => (b[1].zubb+b[1].tis) - (a[1].zubb+a[1].tis))
+        .slice(0, 8);
+      charts.grade.data.labels = topGrades.map(g => g[0]);
+      charts.grade.data.datasets[0].data = topGrades.map(g => g[1].zubb);
+      charts.grade.data.datasets[1].data = topGrades.map(g => g[1].tis);
+      charts.grade.update();
+
+      const chemZubb = records.filter(r => isFailZubb(r.chemicalStatus)).length;
+      const chemTis = records.filter(r => isFailTis(r.chemicalStatus)).length;
+      const mechZubb = records.filter(r => isFailZubb(r.mechanicalStatus)).length;
+      const mechTis = records.filter(r => isFailTis(r.mechanicalStatus)).length;
+      charts.chemMech.data.datasets[0].data = [chemZubb, mechZubb];
+      charts.chemMech.data.datasets[1].data = [chemTis, mechTis];
+      charts.chemMech.update();
+    }
+
     function updateView() {
       const filtered = getFiltered();
       const failures = getFailuresOnly(filtered);
+
+      updateKPIs(filtered);
+      updateCharts(filtered);
 
       const zubbFails = failures.filter(r => r.zubbCondition);
       const tisFails = failures.filter(r => r.tisCondition);
